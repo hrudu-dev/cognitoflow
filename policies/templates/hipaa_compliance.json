@@ -1,0 +1,67 @@
+{
+  "policy_id": "hipaa_compliance_001",
+  "name": "HIPAA Compliance Policy",
+  "version": "1.0",
+  "description": "Ensures HIPAA-compliant handling of protected health information (PHI)",
+  "rules": [
+    {
+      "rule_id": "phi_detection",
+      "type": "data_classification",
+      "action": "encrypt",
+      "conditions": {
+        "data_types": ["medical_record", "patient_id", "diagnosis", "treatment"],
+        "confidence_threshold": 0.9
+      },
+      "enforcement": "real_time"
+    },
+    {
+      "rule_id": "minimum_necessary",
+      "type": "access_control",
+      "action": "restrict",
+      "conditions": {
+        "access_purpose": "treatment_payment_operations",
+        "user_role_required": true,
+        "justification_required": true
+      },
+      "enforcement": "pre_processing"
+    },
+    {
+      "rule_id": "audit_logging",
+      "type": "monitoring",
+      "action": "log",
+      "conditions": {
+        "log_all_access": true,
+        "include_user_identity": true,
+        "include_timestamp": true,
+        "retention_period": "6_years"
+      },
+      "enforcement": "real_time"
+    },
+    {
+      "rule_id": "breach_notification",
+      "type": "incident_response",
+      "action": "notify",
+      "conditions": {
+        "notification_timeframe": "60_days",
+        "affected_individuals_threshold": 500,
+        "hhs_notification_required": true
+      },
+      "enforcement": "post_processing"
+    },
+    {
+      "rule_id": "business_associate",
+      "type": "third_party_validation",
+      "action": "validate",
+      "conditions": {
+        "baa_required": true,
+        "vendor_compliance_verified": true,
+        "data_sharing_agreement": true
+      },
+      "enforcement": "pre_processing"
+    }
+  ],
+  "compliance_frameworks": ["HIPAA", "HITECH"],
+  "audit_required": true,
+  "created_by": "compliance_team",
+  "created_date": "2024-01-15T00:00:00Z"
+}

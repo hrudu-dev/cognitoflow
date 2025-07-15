@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: PolicyAsCode
+metadata:
+  name: gdpr-compliance-check
+  version: "1.0"
+  description: "GDPR compliance validation for AI SDLC pipeline"
+
+policies:
+  - name: data_processing_lawfulness
+    description: "Ensure lawful basis for data processing"
+    rules:
+      - condition: "data.processing_purpose in ['consent', 'contract', 'legal_obligation', 'vital_interests', 'public_task', 'legitimate_interests']"
+        action: "allow"
+      - condition: "not data.processing_purpose"
+        action: "deny"
+        message: "No lawful basis specified for data processing"
+
+  - name: data_minimization
+    description: "Ensure data collection is limited to necessary purposes"
+    rules:
+      - condition: "len(data.collected_fields) <= data.required_fields_count"
+        action: "allow"
+      - condition: "len(data.collected_fields) > data.required_fields_count"
+        action: "flag"
+        message: "Excessive data collection detected"
+
+  - name: consent_management
+    description: "Validate consent requirements"
+    rules:
+      - condition: "data.consent_obtained == true and data.consent_timestamp"
+        action: "allow"
+      - condition: "data.processing_purpose == 'consent' and not data.consent_obtained"
+        action: "deny"
+        message: "Consent required but not obtained"
+
+  - name: data_subject_rights
+    description: "Ensure data subject rights are supported"
+    rules:
+      - condition: "system.supports_data_portability and system.supports_right_to_erasure"
+        action: "allow"
+      - condition: "not system.supports_data_portability or not system.supports_right_to_erasure"
+        action: "flag"
+        message: "Data subject rights not fully supported"
+
+  - name: cross_border_transfer
+    description: "Validate international data transfers"
+    rules:
+      - condition: "data.transfer_destination in ['EU', 'EEA'] or data.adequacy_decision == true"
+        action: "allow"
+      - condition: "data.transfer_destination not in ['EU', 'EEA'] and not data.adequacy_decision and not data.safeguards"
+        action: "deny"
+        message: "Inadequate safeguards for international transfer"
+
+enforcement:
+  mode: "strict"
+  audit_log: true
+  notification_webhook: "https://api.cognitoflow.com/compliance/notifications"
+
+monitoring:
+  metrics:
+    - policy_violations_count
+    - compliance_score
+    - audit_events_count
+  alerts:
+    - threshold: "compliance_score < 0.95"
+      action: "notify_compliance_team"
+    - threshold: "policy_violations_count > 10"
+      action: "escalate_to_management"

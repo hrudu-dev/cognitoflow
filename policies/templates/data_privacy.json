@@ -1,0 +1,42 @@
+{
+  "policy_id": "data_privacy_001",
+  "name": "GDPR Data Privacy Policy",
+  "version": "1.0",
+  "description": "Ensures GDPR-compliant data anonymization for AI model outputs",
+  "rules": [
+    {
+      "rule_id": "pii_detection",
+      "type": "data_classification",
+      "action": "anonymize",
+      "conditions": {
+        "data_types": ["email", "phone", "ssn", "credit_card"],
+        "confidence_threshold": 0.8
+      },
+      "enforcement": "real_time"
+    },
+    {
+      "rule_id": "consent_validation",
+      "type": "consent_check",
+      "action": "deny",
+      "conditions": {
+        "consent_required": true,
+        "consent_expiry": "2_years"
+      },
+      "enforcement": "pre_processing"
+    },
+    {
+      "rule_id": "data_retention",
+      "type": "lifecycle",
+      "action": "delete",
+      "conditions": {
+        "retention_period": "7_years",
+        "data_category": "personal"
+      },
+      "enforcement": "scheduled"
+    }
+  ],
+  "compliance_frameworks": ["GDPR", "CCPA"],
+  "audit_required": true,
+  "created_by": "system",
+  "created_date": "2024-01-15T00:00:00Z"
+}

@@ -1,0 +1,415 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CognitoFlow Legacy System Migration Template with ECS and Cognito Integration'
+
+Parameters:
+  ApplicationName:
+    Type: String
+    Default: 'cognitoflow-migrated-app'
+    Description: 'Name of the migrated application'
+  
+  Environment:
+    Type: String
+    Default: 'production'
+    AllowedValues: ['development', 'staging', 'production']
+    Description: 'Deployment environment'
+  
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: 'VPC ID for deployment'
+  
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: 'Subnet IDs for ECS service'
+
+Resources:
+  # Cognito User Pool for CognitoFlow Authentication
+  CognitoFlowUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${ApplicationName}-user-pool'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      MfaConfiguration: 'OPTIONAL'
+      EnabledMfas:
+        - 'SOFTWARE_TOKEN_MFA'
+        - 'SMS_MFA'
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: department
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+      LambdaConfig:
+        CustomMessage: !Ref CustomAuthLambda
+        PostAuthentication: !Ref PostAuthLambda
+      UserPoolTags:
+        Environment: !Ref Environment
+        Application: !Ref ApplicationName
+
+  # Cognito User Pool Client
+  CognitoFlowUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoFlowUserPool
+      ClientName: !Sub '${ApplicationName}-client'
+      GenerateSecret: true
+      ExplicitAuthFlows:
+        - 'ALLOW_CUSTOM_AUTH'
+        - 'ALLOW_USER_SRP_AUTH'
+        - 'ALLOW_REFRESH_TOKEN_AUTH'
+      SupportedIdentityProviders:
+        - 'COGNITO'
+      CallbackURLs:
+        - !Sub 'https://${ApplicationName}.cognitoflow.com/callback'
+      LogoutURLs:
+        - !Sub 'https://${ApplicationName}.cognitoflow.com/logout'
+
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${ApplicationName}-cluster'
+      CapacityProviders:
+        - 'FARGATE'
+        - 'FARGATE_SPOT'
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: 'FARGATE'
+          Weight: 1
+        - CapacityProvider: 'FARGATE_SPOT'
+          Weight: 2
+      ClusterSettings:
+        - Name: 'containerInsights'
+          Value: 'enabled'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: !Ref ApplicationName
+
+  # ECS Task Definition
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ApplicationName}-task'
+      NetworkMode: 'awsvpc'
+      RequiresCompatibilities:
+        - 'FARGATE'
+      Cpu: '1024'
+      Memory: '2048'
+      ExecutionRoleArn: !Ref ECSExecutionRole
+      TaskRoleArn: !Ref ECSTaskRole
+      ContainerDefinitions:
+        - Name: !Sub '${ApplicationName}-container'
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ApplicationName}:latest'
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: 'tcp'
+          Environment:
+            - Name: 'COGNITO_USER_POOL_ID'
+              Value: !Ref CognitoFlowUserPool
+            - Name: 'COGNITO_CLIENT_ID'
+              Value: !Ref CognitoFlowUserPoolClient
+            - Name: 'AWS_REGION'
+              Value: !Ref AWS::Region
+            - Name: 'ENVIRONMENT'
+              Value: !Ref Environment
+          LogConfiguration:
+            LogDriver: 'awslogs'
+            Options:
+              awslogs-group: !Ref CloudWatchLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: 'ecs'
+          HealthCheck:
+            Command:
+              - 'CMD-SHELL'
+              - 'curl -f http://localhost:8080/health || exit 1'
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+
+  # ECS Service
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ApplicationLoadBalancerListener
+    Properties:
+      ServiceName: !Sub '${ApplicationName}-service'
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTaskDefinition
+      DesiredCount: 2
+      LaunchType: 'FARGATE'
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets: !Ref SubnetIds
+          AssignPublicIp: 'ENABLED'
+      LoadBalancers:
+        - ContainerName: !Sub '${ApplicationName}-container'
+          ContainerPort: 8080
+          TargetGroupArn: !Ref ApplicationLoadBalancerTargetGroup
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: !Ref ApplicationName
+
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${ApplicationName}-alb'
+      Scheme: 'internet-facing'
+      Type: 'application'
+      Subnets: !Ref SubnetIds
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: !Ref ApplicationName
+
+  # ALB Target Group
+  ApplicationLoadBalancerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${ApplicationName}-tg'
+      Port: 8080
+      Protocol: 'HTTP'
+      VpcId: !Ref VpcId
+      TargetType: 'ip'
+      HealthCheckPath: '/health'
+      HealthCheckProtocol: 'HTTP'
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: !Ref ApplicationName
+
+  # ALB Listener
+  ApplicationLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: 'forward'
+          TargetGroupArn: !Ref ApplicationLoadBalancerTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: 'HTTP'
+
+  # Security Groups
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security group for ECS tasks'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${ApplicationName}-ecs-sg'
+        - Key: Environment
+          Value: !Ref Environment
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security group for Application Load Balancer'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: 'tcp'
+          FromPort: 443
+          ToPort: 443
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ApplicationName}-alb-sg'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Roles
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ApplicationName}-ecs-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'ecs-tasks.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName: 'ECRAccess'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:BatchCheckLayerAvailability'
+                  - 'ecr:GetDownloadUrlForLayer'
+                  - 'ecr:BatchGetImage'
+                Resource: '*'
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ApplicationName}-ecs-task-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'ecs-tasks.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'CognitoAccess'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'cognito-idp:*'
+                Resource: !GetAtt CognitoFlowUserPool.Arn
+        - PolicyName: 'CloudWatchLogs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !GetAtt CloudWatchLogGroup.Arn
+
+  # CloudWatch Log Group
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/ecs/${ApplicationName}'
+      RetentionInDays: 30
+
+  # Lambda Functions for Cognito Custom Auth
+  CustomAuthLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ApplicationName}-custom-auth'
+      Runtime: 'python3.9'
+      Handler: 'index.lambda_handler'
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          
+          def lambda_handler(event, context):
+              # Custom authentication logic for CognitoFlow
+              trigger_source = event['triggerSource']
+              
+              if trigger_source == 'CustomMessage_Authentication':
+                  # Customize authentication message
+                  event['response']['smsMessage'] = f"Your CognitoFlow verification code is {event['request']['codeParameter']}"
+                  event['response']['emailMessage'] = f"Your CognitoFlow verification code is {event['request']['codeParameter']}"
+                  event['response']['emailSubject'] = "CognitoFlow Authentication Code"
+              
+              return event
+
+  PostAuthLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ApplicationName}-post-auth'
+      Runtime: 'python3.9'
+      Handler: 'index.lambda_handler'
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          
+          def lambda_handler(event, context):
+              # Post-authentication processing
+              user_attributes = event['request']['userAttributes']
+              
+              # Log successful authentication
+              print(f"User {user_attributes.get('email')} successfully authenticated")
+              
+              # Add custom claims or perform additional processing
+              event['response']['claimsOverrideDetails'] = {
+                  'claimsToAddOrOverride': {
+                      'department': user_attributes.get('custom:department', 'unknown'),
+                      'auth_time': str(context.aws_request_id)
+                  }
+              }
+              
+              return event
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ApplicationName}-lambda-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+
+Outputs:
+  UserPoolId:
+    Description: 'Cognito User Pool ID'
+    Value: !Ref CognitoFlowUserPool
+    Export:
+      Name: !Sub '${ApplicationName}-user-pool-id'
+
+  UserPoolClientId:
+    Description: 'Cognito User Pool Client ID'
+    Value: !Ref CognitoFlowUserPoolClient
+    Export:
+      Name: !Sub '${ApplicationName}-user-pool-client-id'
+
+  ECSClusterName:
+    Description: 'ECS Cluster Name'
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub '${ApplicationName}-ecs-cluster'
+
+  LoadBalancerDNS:
+    Description: 'Application Load Balancer DNS Name'
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${ApplicationName}-alb-dns'
+
+  ApplicationURL:
+    Description: 'Application URL'
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'

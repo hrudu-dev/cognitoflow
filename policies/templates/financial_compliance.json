@@ -1,0 +1,69 @@
+{
+  "policy_id": "financial_compliance_001",
+  "name": "Financial Services Compliance Policy",
+  "version": "1.0",
+  "description": "Ensures compliance with financial regulations including SOX, PCI-DSS, and fair lending practices",
+  "rules": [
+    {
+      "rule_id": "pci_data_protection",
+      "type": "data_security",
+      "action": "encrypt",
+      "conditions": {
+        "data_types": ["credit_card", "payment_info", "cardholder_data"],
+        "encryption_standard": "AES_256",
+        "key_management": "HSM"
+      },
+      "enforcement": "real_time"
+    },
+    {
+      "rule_id": "fair_lending_check",
+      "type": "fairness_validation",
+      "action": "validate",
+      "conditions": {
+        "protected_classes": ["race", "gender", "age", "religion", "national_origin"],
+        "disparate_impact_threshold": 0.8,
+        "statistical_significance": 0.05
+      },
+      "enforcement": "post_processing"
+    },
+    {
+      "rule_id": "sox_controls",
+      "type": "financial_controls",
+      "action": "validate",
+      "conditions": {
+        "segregation_of_duties": true,
+        "approval_workflows": true,
+        "change_management": true,
+        "audit_trail_required": true
+      },
+      "enforcement": "pre_processing"
+    },
+    {
+      "rule_id": "model_risk_management",
+      "type": "model_governance",
+      "action": "validate",
+      "conditions": {
+        "model_validation_required": true,
+        "independent_review": true,
+        "performance_monitoring": true,
+        "documentation_complete": true
+      },
+      "enforcement": "pre_decision"
+    },
+    {
+      "rule_id": "anti_money_laundering",
+      "type": "transaction_monitoring",
+      "action": "flag",
+      "conditions": {
+        "suspicious_patterns": ["structuring", "rapid_movement", "high_risk_countries"],
+        "threshold_amounts": {"cash": 10000, "wire": 3000},
+        "customer_risk_scoring": true
+      },
+      "enforcement": "real_time"
+    }
+  ],
+  "compliance_frameworks": ["SOX", "PCI_DSS", "Fair_Credit_Reporting_Act", "Equal_Credit_Opportunity_Act"],
+  "audit_required": true,
+  "created_by": "financial_compliance_team",
+  "created_date": "2024-01-15T00:00:00Z"
+}

@@ -5,13 +5,28 @@ A zero-code AI model policy engine for B2B applications with drag-and-drop inter
 ## 🎯 Project Vision
 Enable non-technical users to create, manage, and enforce AI governance policies across hybrid cloud environments with enterprise-grade security, cost optimization, and sustainability.
 
-## 🚀 Key Features
-- **Zero-Code Policy Builder**: Drag-and-drop interface for AI policy creation
-- **Hybrid Cloud Architecture**: AWS + On-premises integration
-- **AI-Powered Compliance**: Bedrock LLM for policy validation
-- **Cost-Effective Scaling**: Serverless-first with intelligent resource optimization
-- **Sustainable Computing**: Green cloud practices and carbon footprint tracking
-- **Enterprise Security**: Multi-layer authentication and zero-trust architecture
+## 🚀 Three Key Features
+
+### 1. Zero-Code AI Policy Engine with CognitoFlow Authentication
+- **Drag-and-Drop Interface**: Create policies without coding using pre-built templates
+- **Real-Time Enforcement**: Lambda-based policy validation with <100ms latency
+- **CognitoFlow Authentication**: Secure CUSTOM_AUTH flows with MFA and passwordless options
+- **B2B Integration**: Seamless API integration with Salesforce, SAP, and other enterprise systems
+- **Audit Trails**: Comprehensive logging for GDPR, HIPAA, and SOX compliance
+
+### 2. AI SDLC Pipeline with Automated Compliance Checks
+- **End-to-End MLOps**: From problem framing to production deployment
+- **Policy-as-Code**: Automated compliance validation using OPA and YAML configurations
+- **AWS Integration**: SageMaker, Bedrock, and OpenSearch for enterprise AI workflows
+- **Continuous Monitoring**: Real-time bias detection, drift monitoring, and performance tracking
+- **Automated Retraining**: Trigger model updates based on compliance violations or performance degradation
+
+### 3. Compliant Legacy System Modernization with CognitoFlow Security
+- **Assessment Framework**: Comprehensive technical debt and compliance gap analysis
+- **CloudFormation Templates**: Infrastructure-as-Code for AWS ECS deployment
+- **Zero Trust Architecture**: Passwordless authentication with WebAuthn and device compliance
+- **Hybrid Integration**: Seamless on-premises to cloud migration with Direct Connect
+- **Cost Optimization**: 30% infrastructure savings through serverless and intelligent scaling
 
 ## 🏗️ Enhanced AWS Architecture
 
